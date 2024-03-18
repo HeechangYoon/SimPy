@@ -3,26 +3,24 @@ import pandas as pd
 import numpy as np
 from collections import OrderedDict
 
-save_path = '../result'
+save_path = './result'
 if not os.path.exists(save_path):
    os.makedirs(save_path)
 
 #region Operation
 class Operation(object):
-    def __init__(self, name, time, proc_list):
+    def __init__(self, name, info_dict):
         # 해당 operation의 이름
         self.id = name
-        # 해당 operation의 시간
-        self.time = time
-        # 해당 operation이 가능한 process의 list
-        self.proc_list = proc_list
+        # 해당 operation의 service time 정보(Key:Process 이름, Value:해당 Process에서의 servicetime)
+        self.info = info_dict
 
     # Operation의 시간을 호출하기 위한 함수
-    def get_time(self):
-        if type(self.time) is str:
-            return eval('np.random.'+self.time)
+    def get_time(self, name):
+        if type(self.info[name]) is str:
+            return eval('np.random.'+ self.info[name])
         else:
-            return self.time
+            return self.info[name]
 #endregion
 
 
@@ -41,12 +39,13 @@ class Part(object):
 
 #region Source
 class Source(object):
-    def __init__(self, env, name, model, monitor, data=None, jobtype=None, IAT='expon(1)', num_parts=float('inf')):
+    def __init__(self, env, name, model, monitor, data=None, job_name=None, jobtype=None, IAT='expon(1)', num_parts=float('inf')):
         self.env = env
         self.name = name # 해당 Source의 이름
         self.model = model
         self.monitor = monitor
         self.data = data # Source가 생성하는 Part의 데이터(입력값 없을 시 jobtype을 통한 Part 생성)
+        self.job_name = job_name # Source가 생산하는 Part의 job의 이름(입력값 없을 시 data를 통한 Part 생성)
         self.jobtype = jobtype # Source가 생산하는 Part의 jobtype(입력값 없을 시 data를 통한 Part 생성)
         self.IAT = IAT # Source가 생성하는 Part의 IAT(jobtype을 통한 Part 생성)
         self.num_parts = num_parts # Source가 생성하는 Part의 갯수(jobtype을 통한 Part 생성)
@@ -67,11 +66,11 @@ class Source(object):
 
                 # record: part_created
                 part.loc = self.name
-                self.monitor.record(self.env.now, self.name, None, part_id=part.id, event="Part Created")
+                self.monitor.record(time=self.env.now, part_id=part.id, process=self.name, event="Part Created")
 
                 # Routing Start
                 self.model['Routing'].queue.put(part)  # Routing class로 put
-                self.monitor.record(self.env.now, self.name, None, part_id=part.id, event="Routing Start")
+                self.monitor.record(time=self.env.now, part_id=part.id, process=self.name, event="Routing Start")
 
                 if len(self.data) == 0:  # 모든 블록의 일이 끝나면 Source에서의 활동 종료
                     print("all parts are sent at : ", self.env.now)
@@ -79,15 +78,15 @@ class Source(object):
         # jobtype을 통한 Part 생성
         else:
             while self.rec < self.num_parts:
-                part = Part(self.name+'_'+str(self.rec), self.jobtype)
+                part = Part(self.job_name+'_'+str(self.rec), self.jobtype)
 
                 # record: part_created
                 part.loc = self.name
-                self.monitor.record(self.env.now, self.name, None, part_id=part.id, event="Part Created")
+                self.monitor.record(time=self.env.now, part_id=part.id, process=self.name, event="Part Created")
 
                 # Routing start
                 self.model['Routing'].queue.put(part) # Routing class로 put
-                self.monitor.record(self.env.now, self.name, None, part_id=part.id, event="Routing Start")
+                self.monitor.record(time=self.env.now, part_id=part.id, process=self.name, event="Routing Start")
                 if type(self.IAT) is str:
                     IAT = eval('np.random.' + self.IAT)
                 else:
@@ -148,17 +147,17 @@ class Process(object):
             self.in_part.put_queue.insert(0, put_None)
         part = yield self.in_part.get(lambda x: x is not None)
         operation = part.requirements[part.step]
-        proc_time = operation.get_time()
+        proc_time = operation.get_time(self.name)
 
         # Process start and finish
-        self.monitor.record(self.env.now, self.name, None, part_id=part.id, event=operation.id+" Start")
+        self.monitor.record(time=self.env.now, part_id=part.id, process=self.name, operation=operation.id, event=operation.id+" Start")
         yield self.env.timeout(proc_time)
-        self.monitor.record(self.env.now, self.name, None, part_id=part.id, event=operation.id+" Finish")
+        self.monitor.record(time=self.env.now, part_id=part.id, process=self.name, operation=operation.id, event=operation.id+" Finish")
         self.util_time += proc_time
 
         # Routing start
         self.model['Routing'].queue.put(part)
-        self.monitor.record(self.env.now, self.name, None, part_id=part.id, event="Routing Start")
+        self.monitor.record(time=self.env.now, part_id=part.id, process=self.name, event="Routing Start")
 
     # with out_buffer
     def work_with_outbuffer(self):
@@ -169,18 +168,18 @@ class Process(object):
             self.in_part.put_queue.insert(0, put_None)
         part = yield self.in_part.get(lambda x: x is not None)
         operation = part.requirements[part.step]
-        proc_time = operation.get_time()
+        proc_time = operation.get_time(self.name)
 
         # Process start and finish
-        self.monitor.record(self.env.now, self.name, None, part_id=part.id, event=operation.id+" Start")
+        self.monitor.record(time=self.env.now, part_id=part.id, process=self.name, operation=operation.id, event=operation.id+" Start")
         yield self.env.timeout(proc_time)
-        self.monitor.record(self.env.now, self.name, None, part_id=part.id, event=operation.id+" Finish")
+        self.monitor.record(time=self.env.now, part_id=part.id, process=self.name, operation=operation.id, event=operation.id+" Finish")
         self.util_time += proc_time
 
         # Routing start
         yield self.out_part.put(part)
         yield self.model['Routing'].queue.put(part)
-        self.monitor.record(self.env.now, self.name, None, part_id=part.id, event="Routing Start")
+        self.monitor.record(time=self.env.now, part_id=part.id, process=self.name, event="Routing Start")
         yield self.in_part.get(lambda x: x is None)
         yield self.machines.get()
 #endregion
@@ -213,7 +212,7 @@ class Routing(object):
     def least_util(self, part):
         # Select least utilized proc
         operation = part.requirements[part.step]
-        proc_list = [self.model[proc] for proc in operation.proc_list]
+        proc_list = [self.model[proc] for proc in operation.info.keys()]
         util_list = [proc.util_time / proc.capa for proc in proc_list]
         idx = util_list.index(min(util_list))
         next_proc = proc_list[idx]
@@ -228,34 +227,37 @@ class Routing(object):
             pre_proc = self.model[part.loc]
             # Part의 현재 process가 without out_buffer인 경우
             if pre_proc.out_part is None:
-                self.monitor.record(self.env.now, next_proc.name, None, part_id=part.id, event="Routing Finish")
+                self.monitor.record(time=self.env.now, part_id=part.id, process=part.loc, event="Routing Finish")
                 # to next process
                 yield next_proc.in_part.put(part)
+                self.monitor.record(time=self.env.now, part_id=part.id, process=part.loc, event="Part transferred")
                 next_proc.run_event.succeed()
                 next_proc.run_event = simpy.Event(self.env)
                 yield pre_proc.machines.get()
                 yield pre_proc.in_part.get(lambda x: x is None)
                 part.loc = next_proc.name
-                self.monitor.record(self.env.now, next_proc.name, None, part_id=part.id, event="Part transferred")
+                self.monitor.record(time=self.env.now, part_id=part.id, process=part.loc, event="Part entered")
             # Part의 현재 process가 with out_buffer인 경우
             else:
-                self.monitor.record(self.env.now, next_proc.name, None, part_id=part.id, event="Routing Finish")
+                self.monitor.record(time=self.env.now, part_id=part.id, process=part.loc, event="Routing Finish")
                 # to next process
                 yield next_proc.in_part.put(part)
+                self.monitor.record(time=self.env.now, part_id=part.id, process=part.loc, event="Part transferred")
                 next_proc.run_event.succeed()
                 next_proc.run_event = simpy.Event(self.env)
                 yield pre_proc.out_part.get(lambda x: x.id == part.id)
                 part.loc = next_proc.name
-                self.monitor.record(self.env.now, next_proc.name, None, part_id=part.id, event="Part transferred")
+                self.monitor.record(time=self.env.now, part_id=part.id, process=next_proc.name,  event="Part entered")
 
         # Part의 위치가 임의의 Source인 경우
         else:
-            self.monitor.record(self.env.now, next_proc.name, None, part_id=part.id, event="Routing Finish")
+            self.monitor.record(time=self.env.now, part_id=part.id, process=next_proc.name, event="Routing Finish")
             yield next_proc.in_part.put(part)
+            self.monitor.record(time=self.env.now, part_id=part.id, process=part.loc, event="Part transferred")
             next_proc.run_event.succeed()
             next_proc.run_event = simpy.Event(self.env)
             part.loc = next_proc.name
-            self.monitor.record(self.env.now, next_proc.name, None, part_id=part.id, event="Part transferred")
+            self.monitor.record(time=self.env.now, part_id=part.id, process=next_proc.name,  event="Part entered")
 
     def put_sink(self, part):
         if part.loc in self.model.keys():
@@ -288,7 +290,7 @@ class Sink(object):
     def put(self, part):
         self.parts_rec += 1
         self.last_arrival = self.env.now
-        self.monitor.record(self.env.now, self.name, None, part_id=part.id, event="Part Completed")
+        self.monitor.record(time=self.env.now, part_id=part.id, process=self.name, event="Part Completed")
 #endregion
 
 
@@ -298,24 +300,26 @@ class Monitor(object):
         self.filepath = filepath  ## Event tracer 저장 경로
 
         self.time = list()
-        self.event = list()
         self.part = list()
         self.process_name = list()
+        self.operation_name = list()
+        self.event = list()
         self.machine_name = list()
 
-    def record(self, time, process, machine, part_id=None, event=None):
+    def record(self, time, part_id=None, process=None, operation=None, event=None, machine=None):
         self.time.append(time)
-        self.event.append(event)
         self.part.append(part_id)
         self.process_name.append(process)
+        self.operation_name.append(operation)
+        self.event.append(event)
         self.machine_name.append(machine)
 
     def save_event_tracer(self):
-        event_tracer = pd.DataFrame(columns=['Time', 'Event', 'Part', 'Process', 'Machine'])
+        event_tracer = pd.DataFrame(columns=['Time', 'Part', 'Process', 'Event', 'Machine'])
         event_tracer['Time'] = self.time
-        event_tracer['Event'] = self.event
         event_tracer['Part'] = self.part
         event_tracer['Process'] = self.process_name
+        event_tracer['Event'] = self.event
         event_tracer['Machine'] = self.machine_name
 
         event_tracer.to_csv(self.filepath)

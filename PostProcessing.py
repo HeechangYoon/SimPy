@@ -17,82 +17,71 @@ def graph(x, y, title=None, display=False, save=False, filepath=None):
         plt.close("all")
 
 
-def cal_utilization(log, name=None, type=None, num=1, start_time=0.0, finish_time=0.0, step=None, display=False, save=False, filepath=None):
-    log = log[(log[type] == name) & ((log["Event"] == "work_start") | (log["Event"] == "work_finish"))]
+def cal_utilization(log, name=None, type='Process', start_time=0.0, finish_time=0.0, step=1, display=False, save=False, filepath=None):
+    log = log[(log[type] == name) & ~(log["Event"].str.startswith("Routing")) & ((log["Event"].str.endswith("Start")) | (log["Event"].str.endswith("Finish")))]
 
-    if step:
-        iteration = step
-    else:
-        iteration = 1
+    iteration = step
 
-    time = np.linspace(start_time, finish_time, num=iteration)
+
+    time = np.linspace(start_time, finish_time, num=iteration+1)
     utilization = np.array([0.0 for _ in range(iteration)])
     idle_time = np.array([0.0 for _ in range(iteration)])
     working_time = np.array([0.0 for _ in range(iteration)])
 
     for i in range(iteration):
-        if step and (i == iteration - 1):
-            break
         if step:
+            start_time = time[i]
             finish_time = time[i + 1]
         data = log[(log["Time"] >= start_time) & (log["Time"] <= finish_time)]
 
-        total_time = 0.0
-        for j in range(num):
-            if type == "Process":
-                name_of_subprocess = name + "_{0}".format(j)
-            else:
-                name_of_subprocess = name
+        total_time = finish_time - start_time
 
-            group = data[data["SubProcess"] == name_of_subprocess]
-            work_start = group[group['Event'] == "work_start"]
-            work_finish = group[group['Event'] == "work_finish"]
+        work_start = data[data['Event'].str.endswith("Start")]
+        work_finish = data[data['Event'].str.endswith("Finish")]
 
-            if len(work_start) == 0 and len(work_finish) == 0:
-                temp = log[log["SubProcess"] == name]
-                if len(temp) != 0:
-                    idx = temp["Time"] >= start_time
-                    if temp[idx].iloc[0]["Event"] == "work_finsh":
-                        working_time += (finish_time - start_time)
-                        total_time += (finish_time - start_time)
-                        continue
-                working_time += 0.0
-                total_time += (finish_time - start_time)
-                continue
-            elif len(work_start) != 0 and len(work_finish) == 0:
-                row = dict(work_start.iloc[0])
-                row["Time"] = finish_time
-                row["Event"] = "work_finish"
-                work_finish = pd.DataFrame([row])
-            elif len(work_start) == 0 and len(work_finish) != 0:
+        if len(work_start) == 0 and len(work_finish) == 0:
+            temp = log[log[type] == name]
+            if len(temp) != 0:
+                idx = temp["Time"] >= start_time
+                if temp[idx].iloc[0]["Event"].str.endswith("Finish"):
+                    working_time[i] += (finish_time - start_time)
+                    continue
+            # working_time += 0.0
+            # total_time += (finish_time - start_time)
+            continue
+        elif len(work_start) != 0 and len(work_finish) == 0:
+            row = dict(work_start.iloc[0])
+            row["Time"] = finish_time
+            row["Event"] = "Work Finish"
+            work_finish = pd.DataFrame([row])
+        elif len(work_start) == 0 and len(work_finish) != 0:
+            row = dict(work_finish.iloc[0])
+            row["Time"] = start_time
+            row["Event"] = "Work Start"
+            work_start = pd.DataFrame([row])
+        else:
+            if work_start.iloc[0]["Part"] != work_finish.iloc[0]["Part"]:
                 row = dict(work_finish.iloc[0])
                 row["Time"] = start_time
-                row["Event"] = "work_start"
-                work_start = pd.DataFrame([row])
-            else:
-                if work_start.iloc[0]["Part"] != work_finish.iloc[0]["Part"]:
-                    row = dict(work_finish.iloc[0])
-                    row["Time"] = start_time
-                    row["Event"] = "work_start"
-                    work_start = pd.DataFrame([row]).append(work_start)
-                if work_start.iloc[-1]["Part"] != work_finish.iloc[-1]["Part"]:
-                    row = dict(work_start.iloc[-1])
-                    row["Time"] = finish_time
-                    row["Event"] = "work_finish"
-                    work_finish = work_finish.append(pd.DataFrame([row]))
+                row["Event"] = "Work Start"
+                work_start = pd.DataFrame([row]).append(work_start)
+            if work_start.iloc[-1]["Part"] != work_finish.iloc[-1]["Part"]:
+                row = dict(work_start.iloc[-1])
+                row["Time"] = finish_time
+                row["Event"] = "Work Finish"
+                work_finish = work_finish.append(pd.DataFrame([row]))
 
-            work_start = work_start["Time"].reset_index(drop=True)
-            work_finish = work_finish["Time"].reset_index(drop=True)
-            working_time[i] += np.sum(work_finish - work_start)
-            total_time += (finish_time - start_time)
+        work_start = work_start["Time"].reset_index(drop=True)
+        work_finish = work_finish["Time"].reset_index(drop=True)
+        working_time[i] += np.sum(work_finish - work_start)
 
         idle_time[i] = total_time - working_time[i]
         utilization[i] = working_time[i] / total_time if total_time != 0.0 else 0.0
 
     if step:
-        utilization = pd.DataFrame({"Time": time[1:], "Utilization": utilization[:-1]})
-        idle_time = pd.DataFrame({"Time": time[1:], "Idle_time": idle_time[:-1]})
-        working_time = pd.DataFrame({"Time": time[1:], "Working_time": working_time[:-1]})
+        utilization = pd.DataFrame({"Time": time[1:], "Utilization": utilization[:]})
+        idle_time = pd.DataFrame({"Time": time[1:], "Idle_time": idle_time[:]})
+        working_time = pd.DataFrame({"Time": time[1:], "Working_time": working_time[:]})
         if display or save:
             title = "utilization of {0} in ({1:.2f}, {2:.2f})".format(name, start_time, finish_time)
             graph(utilization["Time"], utilization["Utilization"], title=title, display=display, save=save, filepath=filepath)
@@ -103,7 +92,7 @@ def cal_utilization(log, name=None, type=None, num=1, start_time=0.0, finish_tim
 
 def cal_leadtime(log, name=None, type=None, mode="m", start_time=0.0, finish_time=0.0):
     event = {"m": ("part_created", "completed"),
-             "p": ("Process_entered", "part_transferred_to_next_process", "part_transferred_to_next_process_with_tp", "part_transferred_to_Sink")}
+             "p": ("Process_entered", "part_transferred")}
 
     if not mode == "m":
         log = log[log[type] == name]
@@ -193,87 +182,6 @@ def cal_wip(log, mode="entire", process_name=None, start_time=None, finish_time=
     wip = hanging_time / (finish_time - start_time)
 
     return wip
-
-    # event = {"m": ("part_created", "completed"),
-    #          "p": ("Process_entered", "part_transferred_to_next_process", "part_transferred_to_next_process_with_tp", "part_transferred_to_Sink"),
-    #          "q": ("Process_entered", "work_start")}
-    #
-    # if not mode == "m":
-    #     log = log[log[type] == name]
-    # if mode == "p":
-    #     log = log[(log["Event"] == event[mode][0]) | (log["Event"] == event[mode][1])
-    #               | (log["Event"] == event[mode][2]) | (log["Event"] == event[mode][3])]
-    # else:
-    #     log = log[(log["Event"] == event[mode][0]) | (log["Event"] == event[mode][1])]
-    #
-    # if step:
-    #     iteration = step
-    # else:
-    #     iteration = 1
-    #
-    # time = np.linspace(start_time, finish_time, num=iteration)
-    # wip = np.array([0.0 for _ in range(iteration)])
-    # duration = np.array([0.0 for _ in range(iteration)])
-    #
-    # for i in range(iteration):
-    #     if step and (i == iteration - 1):
-    #         break
-    #     if step:
-    #         finish_time = time[i + 1]
-    #     data = log[(log["Time"] >= start_time) & (log["Time"] <= finish_time)]
-    #
-    #     total_time = finish_time - start_time
-    #     data_by_group = data.groupby(data["Process"])
-    #     for j, group in data_by_group:
-    #         wip_start = group[group["Event"] == event[mode][0]]
-    #         if not mode == "p":
-    #             wip_finish = group[group["Event"] == event[mode][1]]
-    #         else:
-    #             wip_finish = group[(group["Event"] == event[mode][1]) | (group["Event"] == event[mode][2]) | (group["Event"] == event[mode][3])]
-    #         if len(wip_start) == 0 and len(wip_finish) == 0:
-    #             temp = log[log["Process"] == j]
-    #             if len(temp) != 0:
-    #                 idx = temp["Time"] >= start_time
-    #                 if temp[idx].iloc[0]["Event"] == event[mode][1]:
-    #                     duration += (finish_time - start_time)
-    #             continue
-    #         elif len(wip_start) != 0 and len(wip_finish) == 0:
-    #             row = dict(wip_start.iloc[0])
-    #             row["Time"] = finish_time
-    #             row["Event"] = event[mode][1]
-    #             wip_finish = pd.DataFrame([row])
-    #         elif len(wip_start) == 0 and len(wip_finish) != 0:
-    #             row = dict(wip_finish.iloc[0])
-    #             row["Time"] = start_time
-    #             row["Event"] = event[mode][0]
-    #             wip_start = pd.DataFrame([row])
-    #         else:
-    #             if wip_start.iloc[0]["Part"] != wip_finish.iloc[0]["Part"]:
-    #                 row = dict(wip_finish.iloc[0])
-    #                 row["Time"] = start_time
-    #                 row["Event"] = event[mode][0]
-    #                 wip_start = pd.DataFrame([row]).append(wip_start)
-    #             if wip_start.iloc[-1]["Part"] != wip_finish.iloc[-1]["Part"]:
-    #                 row = dict(wip_start.iloc[-1])
-    #                 row["Time"] = finish_time
-    #                 row["Event"] = event[mode][1]
-    #                 wip_finish = wip_finish.append(pd.DataFrame([row]))
-    #
-    #         wip_start = wip_start["Time"].reset_index(drop=True)
-    #         wip_finish = wip_finish["Time"].reset_index(drop=True)
-    #         duration[i] += np.sum(wip_finish - wip_start)
-    #
-    #     wip[i] = duration[i] / total_time if total_time != 0.0 else 0.0
-    #
-    # if step:
-    #     wip = pd.DataFrame({"Time": time[1:], "WIP": wip[:-1]})
-    #     if display or save:
-    #         title = "WIP of {0} in ({1:.2f}, {2:.2f})".format(name, start_time, finish_time)
-    #         graph(wip["Time"], wip["WIP"], title=title, display=display, save=save, filepath=filepath)
-    #     return wip
-    # else:
-    #     return wip[0]
-
 
 def gantt(data, process_list):
     list_part = list(data["Part"][data["Event"] == "part_created"])
