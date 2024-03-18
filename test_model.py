@@ -37,6 +37,6 @@ source1 = Source(env, 'Source_jobtype1', model, monitor, job_name='jobtype1', jo
 source2 = Source(env, 'Source_jobtype2', model, monitor, job_name='jobtype2', jobtype=jobtype2, IAT=10)
 source3 = Source(env, 'Source_jobtype3', model, monitor, job_name='jobtype3', jobtype=jobtype3, IAT=10)
 
-env.run(until=1000)
+env.run(until=50000)
 
 monitor.save_event_tracer()

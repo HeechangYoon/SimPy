@@ -230,34 +230,34 @@ class Routing(object):
                 self.monitor.record(time=self.env.now, part_id=part.id, process=part.loc, event="Routing Finish")
                 # to next process
                 yield next_proc.in_part.put(part)
-                self.monitor.record(time=self.env.now, part_id=part.id, process=part.loc, event="Part transferred")
+                self.monitor.record(time=self.env.now, part_id=part.id, process=part.loc, event="Part Transferred")
                 next_proc.run_event.succeed()
                 next_proc.run_event = simpy.Event(self.env)
                 yield pre_proc.machines.get()
                 yield pre_proc.in_part.get(lambda x: x is None)
                 part.loc = next_proc.name
-                self.monitor.record(time=self.env.now, part_id=part.id, process=part.loc, event="Part entered")
+                self.monitor.record(time=self.env.now, part_id=part.id, process=part.loc, event="Part Entered")
             # Part의 현재 process가 with out_buffer인 경우
             else:
                 self.monitor.record(time=self.env.now, part_id=part.id, process=part.loc, event="Routing Finish")
                 # to next process
                 yield next_proc.in_part.put(part)
-                self.monitor.record(time=self.env.now, part_id=part.id, process=part.loc, event="Part transferred")
+                self.monitor.record(time=self.env.now, part_id=part.id, process=part.loc, event="Part Transferred")
                 next_proc.run_event.succeed()
                 next_proc.run_event = simpy.Event(self.env)
                 yield pre_proc.out_part.get(lambda x: x.id == part.id)
                 part.loc = next_proc.name
-                self.monitor.record(time=self.env.now, part_id=part.id, process=next_proc.name,  event="Part entered")
+                self.monitor.record(time=self.env.now, part_id=part.id, process=next_proc.name,  event="Part Entered")
 
         # Part의 위치가 임의의 Source인 경우
         else:
             self.monitor.record(time=self.env.now, part_id=part.id, process=next_proc.name, event="Routing Finish")
             yield next_proc.in_part.put(part)
-            self.monitor.record(time=self.env.now, part_id=part.id, process=part.loc, event="Part transferred")
+            self.monitor.record(time=self.env.now, part_id=part.id, process=part.loc, event="Part Transferred")
             next_proc.run_event.succeed()
             next_proc.run_event = simpy.Event(self.env)
             part.loc = next_proc.name
-            self.monitor.record(time=self.env.now, part_id=part.id, process=next_proc.name,  event="Part entered")
+            self.monitor.record(time=self.env.now, part_id=part.id, process=next_proc.name,  event="Part Entered")
 
     def put_sink(self, part):
         if part.loc in self.model.keys():
